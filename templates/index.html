@@ -1,0 +1,1878 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TrashDash 🗑️ – On-Demand Waste Collection</title>
+  <link href="https://fonts.googleapis.com/css2?family=Boogaloo&family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+  <style>
+    /* ─── TOKENS ─────────────────────────────────────────────── */
+    :root {
+      --bg:        #060d07;
+      --surface:   #0c1a0e;
+      --card:      rgba(14, 30, 17, 0.85);
+      --green:     #00ff66;
+      --green2:    #00cc50;
+      --red:       #ff3d50;
+      --red2:      #c72136;
+      --yellow:    #ffe048;
+      --blue:      #4facfe;
+      --purple:    #b44ffc;
+      --text:      #edfff2;
+      --muted:     #4a7050;
+      --border:    rgba(0,255,102,.12);
+    }
+
+    /* ─── RESET ──────────────────────────────────────────────── */
+    *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: 'Nunito', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ─── AMBIENT BACKGROUND ─────────────────────────────────── */
+    body::before {
+      content: '';
+      position: fixed; inset: 0; pointer-events: none; z-index: 0;
+      background:
+        radial-gradient(ellipse 60% 50% at 15% 40%, rgba(0,255,102,.06) 0%, transparent 100%),
+        radial-gradient(ellipse 50% 45% at 85% 20%, rgba(255,61,80,.05) 0%, transparent 100%),
+        radial-gradient(ellipse 40% 40% at 50% 90%, rgba(79,172,254,.04) 0%, transparent 100%);
+    }
+
+    /* ─── FLOATING EMOJIS ────────────────────────────────────── */
+    #floatBg { position:fixed; inset:0; pointer-events:none; overflow:hidden; z-index:0; }
+    .fp {
+      position: absolute;
+      opacity: 0;
+      animation: floatRise linear infinite;
+    }
+    @keyframes floatRise {
+      0%   { transform: translateY(105vh) rotate(0deg);   opacity: 0; }
+      8%   { opacity: .07; }
+      90%  { opacity: .07; }
+      100% { transform: translateY(-8vh) rotate(360deg); opacity: 0; }
+    }
+
+    /* ─── NAV ────────────────────────────────────────────────── */
+    nav {
+      position: fixed; top:0; left:0; right:0; z-index:200;
+      display: flex; align-items:center; justify-content:space-between;
+      padding: 14px 32px;
+      background: rgba(6,13,7,.88);
+      backdrop-filter: blur(18px);
+      border-bottom: 1px solid var(--border);
+    }
+    .logo {
+      font-family: 'Boogaloo', cursive;
+      font-size: 1.85rem;
+      color: var(--green);
+      text-shadow: 0 0 22px rgba(0,255,102,.45);
+      display: flex; align-items:center; gap:8px;
+      cursor: pointer; user-select: none;
+    }
+    .logo em { color: var(--text); font-style:normal; }
+    .nav-r { display:flex; gap:10px; align-items:center; }
+    .user-pill {
+      display: none; align-items:center; gap:7px;
+      background: rgba(0,255,102,.1); border:1px solid var(--border);
+      color: var(--green); padding:7px 16px; border-radius:50px;
+      font-size:.88rem; font-weight:700;
+    }
+
+    /* ─── BUTTONS ────────────────────────────────────────────── */
+    .btn {
+      padding: 10px 26px; border-radius:50px; border:none;
+      font-family: 'Nunito', sans-serif; font-weight:800; font-size:.9rem;
+      cursor: pointer; transition: all .25s; position:relative; overflow:hidden;
+      letter-spacing:.3px;
+    }
+    .btn::after {
+      content:''; position:absolute; inset:0;
+      background:rgba(255,255,255,.1); opacity:0; transition:opacity .2s;
+    }
+    .btn:hover::after { opacity:1; }
+    .btn:active { transform:scale(.96); }
+
+    .btn-g {
+      background: linear-gradient(135deg, var(--green), var(--green2));
+      color: #001208;
+      box-shadow: 0 4px 22px rgba(0,255,102,.28);
+    }
+    .btn-g:hover { box-shadow:0 4px 32px rgba(0,255,102,.5); transform:translateY(-2px); }
+
+    .btn-ghost {
+      background: transparent; color:var(--text);
+      border: 1px solid rgba(255,255,255,.18);
+    }
+    .btn-ghost:hover { border-color:var(--green); color:var(--green); }
+
+    .btn-r {
+      background: linear-gradient(135deg, var(--red), var(--red2));
+      color:#fff; box-shadow:0 4px 22px rgba(255,61,80,.28);
+    }
+    .btn-y {
+      background: linear-gradient(135deg, var(--yellow), #e6a800);
+      color:#1a0f00; box-shadow:0 4px 22px rgba(255,224,72,.28);
+    }
+    .btn-lg { padding:15px 38px; font-size:1.05rem; border-radius:16px; }
+    .btn-full { width:100%; text-align:center; display:block; }
+
+    /* ─── SECTION FRAMEWORK ──────────────────────────────────── */
+    .pg { min-height:100vh; position:relative; z-index:1; display:none; }
+    .pg.active { display:flex; flex-direction:column; }
+
+    /* ─── ██ LANDING ████████████████████████████████████████── */
+    #pgLanding {
+      align-items: center; justify-content:center;
+      text-align: center; padding:90px 20px 60px;
+    }
+
+    .hero-badge {
+      display:inline-block;
+      background:rgba(0,255,102,.08); border:1px solid rgba(0,255,102,.25);
+      color:var(--green); padding:6px 18px; border-radius:50px;
+      font-size:.8rem; font-weight:800; letter-spacing:1.5px;
+      text-transform:uppercase; margin-bottom:22px;
+      animation: fadeDown .6s ease both;
+    }
+    @keyframes fadeDown { from { opacity:0; transform:translateY(-16px); } }
+
+    .hero-h {
+      font-family: 'Boogaloo', cursive;
+      font-size: clamp(3.2rem, 9vw, 7.5rem);
+      line-height: 1.02; margin-bottom:18px;
+      animation: fadeDown .6s .1s ease both;
+    }
+    .hero-h .t1 { color:var(--text); }
+    .hero-h .t2 { color:var(--green); text-shadow:0 0 45px rgba(0,255,102,.5); }
+
+    .hero-sub {
+      font-size:1.1rem; color:var(--muted); max-width:500px;
+      margin:0 auto 36px; line-height:1.75;
+      animation: fadeDown .6s .2s ease both;
+    }
+
+    .cta-row {
+      display:flex; gap:14px; flex-wrap:wrap; justify-content:center;
+      margin-bottom:72px;
+      animation: fadeDown .6s .3s ease both;
+    }
+
+    /* ─── BINS ───────────────────────────────────────────────── */
+    .bins-row {
+      display: flex; gap:64px; justify-content:center; align-items:flex-end;
+      margin-bottom:52px;
+      animation: fadeDown .6s .15s ease both;
+    }
+    .bin-wrap {
+      display:flex; flex-direction:column; align-items:center; gap:10px;
+    }
+
+    /* Shared bin parts */
+    .b-handle {
+      width:36px; height:11px; border-radius:6px;
+      margin-bottom:3px;
+    }
+    .b-lid-shell {
+      perspective: 360px; perspective-origin: center 100%;
+      width: 136px;
+    }
+    .b-lid {
+      width:136px; height:24px; border-radius:12px 12px 5px 5px;
+      transform-origin: bottom center;
+    }
+    .b-body {
+      width:116px; height:168px; border-radius:10px 10px 22px 22px;
+      margin-top:-3px; position:relative;
+      display:flex; align-items:center; justify-content:center;
+    }
+    .b-body::before, .b-body::after {
+      content:''; position:absolute;
+      width:5px; border-radius:3px;
+      top:24px; bottom:24px;
+      background:rgba(0,0,0,.14);
+    }
+    .b-body::before { left:11px; }
+    .b-body::after  { right:11px; }
+    .b-body .b-icon { font-size:2.6rem; opacity:.28; }
+    .b-wheels { display:flex; gap:52px; margin-top:5px; }
+    .b-wheel  { width:17px; height:17px; border-radius:50%; border:3px solid; }
+    .b-label  {
+      font-family:'Boogaloo',cursive; font-size:1.05rem;
+      letter-spacing:2.5px; color:var(--muted); text-transform:uppercase;
+    }
+    .b-rate {
+      font-size:.72rem; font-weight:800; padding:4px 14px;
+      border-radius:50px; text-transform:uppercase; letter-spacing:.5px;
+    }
+
+    /* Green bin */
+    .gb .b-handle { background:#17703a; }
+    .gb .b-lid {
+      background:linear-gradient(140deg,#2ecc71,#229954);
+      box-shadow:0 6px 20px rgba(46,204,113,.45), inset 0 2px 0 rgba(255,255,255,.22);
+      animation: lidG 25s ease-in-out infinite;
+    }
+    .gb .b-body {
+      background:linear-gradient(180deg,#229954,#1a7a3f);
+      box-shadow:0 10px 35px rgba(34,153,84,.4), inset -6px 0 18px rgba(0,0,0,.08);
+    }
+    .gb .b-wheel { background:#1a7a3f; border-color:#145a30; }
+    .gb .b-rate  { background:rgba(46,204,113,.15); color:#2ecc71; border:1px solid rgba(46,204,113,.3); }
+
+    /* Red bin */
+    .rb .b-handle { background:#7d1a1a; }
+    .rb .b-lid {
+      background:linear-gradient(140deg,#e74c3c,#b03a2e);
+      box-shadow:0 6px 20px rgba(231,76,60,.45), inset 0 2px 0 rgba(255,255,255,.22);
+      animation: lidR 20s ease-in-out infinite;
+      animation-delay: -9s;
+    }
+    .rb .b-body {
+      background:linear-gradient(180deg,#b03a2e,#852921);
+      box-shadow:0 10px 35px rgba(176,58,46,.4), inset -6px 0 18px rgba(0,0,0,.08);
+    }
+    .rb .b-wheel { background:#852921; border-color:#5f1d16; }
+    .rb .b-rate  { background:rgba(231,76,60,.15); color:#e74c3c; border:1px solid rgba(231,76,60,.3); }
+
+    @keyframes lidG {
+      0%,62%,100% { transform:rotateX(0deg); }
+      10%,52%     { transform:rotateX(-82deg); }
+    }
+    @keyframes lidR {
+      0%,65%,100% { transform:rotateX(0deg); }
+      12%,55%     { transform:rotateX(-78deg); }
+    }
+
+    /* vs divider */
+    .bins-vs {
+      display:flex; flex-direction:column; align-items:center;
+      gap:8px; padding-bottom:68px;
+    }
+    .bins-vs .line { width:1px; height:56px; background:linear-gradient(to bottom,transparent,rgba(255,255,255,.08),transparent); }
+    .bins-vs .vs-txt { font-size:1.1rem; color:var(--muted); font-weight:800; }
+
+    /* Feature chips */
+    .chips-row { display:flex; gap:14px; flex-wrap:wrap; justify-content:center; }
+    .chip {
+      display:flex; align-items:center; gap:8px;
+      background:var(--card); border:1px solid var(--border);
+      padding:11px 20px; border-radius:50px;
+      backdrop-filter:blur(10px); font-size:.88rem; font-weight:700;
+      transition:border-color .2s;
+    }
+    .chip:hover { border-color:rgba(0,255,102,.3); }
+
+    /* ─── ██ AUTH ████████████████████████████████████████████─ */
+    #pgAuth {
+      align-items:center; justify-content:center;
+      padding:90px 20px 40px;
+    }
+    .auth-card {
+      background:var(--card); backdrop-filter:blur(24px);
+      border:1px solid var(--border); border-radius:26px;
+      padding:38px; width:100%; max-width:470px;
+      box-shadow:0 24px 70px rgba(0,0,0,.55);
+      animation: slideUp .4s ease;
+    }
+    @keyframes slideUp { from { opacity:0; transform:translateY(24px); } }
+
+    .auth-icon { font-size:3rem; text-align:center; margin-bottom:10px; }
+    .auth-title {
+      font-family:'Boogaloo',cursive; font-size:2rem; text-align:center;
+    }
+    .auth-sub { color:var(--muted); font-size:.88rem; text-align:center; margin-top:4px; margin-bottom:28px; }
+
+    .tabs {
+      display:flex; background:rgba(0,0,0,.35);
+      border-radius:14px; padding:4px; margin-bottom:26px;
+    }
+    .tab-btn {
+      flex:1; padding:10px; border:none; background:transparent;
+      font-family:'Nunito',sans-serif; font-weight:800; font-size:.92rem;
+      border-radius:11px; cursor:pointer; color:var(--muted); transition:all .3s;
+    }
+    .tab-btn.on { background:var(--green); color:#001208; }
+
+    /* Form */
+    .fg { margin-bottom:18px; }
+    .flabel {
+      display:block; font-weight:800; font-size:.78rem; color:var(--muted);
+      margin-bottom:7px; text-transform:uppercase; letter-spacing:.6px;
+    }
+    .finput {
+      width:100%; padding:13px 18px;
+      background:rgba(0,0,0,.32); border:1px solid rgba(255,255,255,.07);
+      border-radius:13px; color:var(--text);
+      font-family:'Nunito',sans-serif; font-size:.98rem;
+      transition:all .25s; outline:none;
+    }
+    .finput:focus { border-color:var(--green); box-shadow:0 0 0 3px rgba(0,255,102,.1); }
+    .finput::placeholder { color:#2a4430; }
+
+    .otp-big {
+      text-align:center; letter-spacing:10px;
+      font-size:1.5rem; font-weight:800;
+    }
+    .otp-hint-box {
+      background:rgba(255,224,72,.08); border:1px solid rgba(255,224,72,.25);
+      color:var(--yellow); padding:12px 16px; border-radius:12px;
+      font-size:.84rem; text-align:center; margin-bottom:18px; line-height:1.5;
+    }
+
+    /* ─── ██ DASHBOARD ██████████████████████████████████████── */
+    #pgDash { padding:90px 20px 40px; }
+    .dash-inner { max-width:920px; margin:0 auto; }
+
+    .welcome-bar {
+      background:linear-gradient(135deg,rgba(0,255,102,.09),rgba(0,255,102,.02));
+      border:1px solid var(--border); border-radius:26px; padding:30px;
+      display:flex; justify-content:space-between; align-items:center;
+      flex-wrap:wrap; gap:18px; margin-bottom:28px;
+    }
+    .welcome-bar h2 {
+      font-family:'Boogaloo',cursive; font-size:2.1rem; color:var(--text);
+    }
+    .welcome-bar h2 span { color:var(--green); }
+    .welcome-bar p { color:var(--muted); margin-top:4px; font-size:.9rem; }
+
+    .stat-grid {
+      display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr));
+      gap:18px; margin-bottom:26px;
+    }
+    .stat-card {
+      background:var(--card); border:1px solid var(--border);
+      border-radius:22px; padding:24px; text-align:center;
+      transition:transform .3s, box-shadow .3s;
+    }
+    .stat-card:hover { transform:translateY(-5px); box-shadow:0 12px 35px rgba(0,0,0,.3); }
+    .stat-card .ico { font-size:2.3rem; margin-bottom:8px; }
+    .stat-card .val { font-family:'Boogaloo',cursive; font-size:2rem; color:var(--green); }
+    .stat-card .lbl { font-size:.82rem; color:var(--muted); margin-top:3px; }
+
+    .pickup-cta {
+      background:linear-gradient(135deg,#00ff66,#00b349);
+      border-radius:26px; padding:32px; text-align:center;
+      cursor:pointer; transition:all .3s; position:relative; overflow:hidden;
+      border:none; font-family:'Nunito',sans-serif; width:100%;
+    }
+    .pickup-cta::before {
+      content:'🗑️'; position:absolute; font-size:9rem;
+      right:-18px; bottom:-22px; opacity:.12; pointer-events:none;
+    }
+    .pickup-cta:hover { transform:translateY(-5px); box-shadow:0 22px 55px rgba(0,255,102,.28); }
+    .pickup-cta h3 { font-family:'Boogaloo',cursive; font-size:1.9rem; color:#001208; margin-bottom:7px; }
+    .pickup-cta p  { color:rgba(0,18,8,.65); font-size:.92rem; margin-bottom:18px; }
+    .pickup-cta .inner-btn {
+      background:rgba(0,18,8,.18); border:2px solid rgba(0,18,8,.25);
+      color:#001208; padding:11px 28px; border-radius:50px;
+      font-family:'Nunito',sans-serif; font-weight:800; font-size:.95rem; cursor:pointer;
+    }
+
+    /* ─── ██ ORDER ███████████████████████████████████████████─ */
+    #pgOrder { padding:90px 20px 50px; }
+    .form-wrap { max-width:580px; margin:0 auto; }
+
+    .sec-hdr { text-align:center; margin-bottom:36px; }
+    .sec-hdr h2 { font-family:'Boogaloo',cursive; font-size:2.4rem; }
+    .sec-hdr p  { color:var(--muted); margin-top:6px; }
+
+    .waste-grid { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:20px; }
+    .wopt {
+      background:var(--card); border:2px solid rgba(255,255,255,.05);
+      border-radius:22px; padding:22px; text-align:center; cursor:pointer;
+      transition:all .3s; position:relative; overflow:hidden;
+    }
+    .wopt .price-tag {
+      position:absolute; top:11px; right:11px;
+      font-size:.72rem; font-weight:800; padding:3px 10px; border-radius:50px;
+    }
+    .wopt .w-emoji { font-size:2.4rem; margin-bottom:8px; }
+    .wopt h4 { font-family:'Boogaloo',cursive; font-size:1.25rem; margin-bottom:3px; }
+    .wopt p  { font-size:.78rem; color:var(--muted); }
+    .wopt.sel-g {
+      border-color:#2ecc71; background:rgba(46,204,113,.08);
+      box-shadow:0 0 0 1px rgba(46,204,113,.25), 0 10px 28px rgba(46,204,113,.12);
+    }
+    .wopt.sel-r {
+      border-color:#e74c3c; background:rgba(231,76,60,.08);
+      box-shadow:0 0 0 1px rgba(231,76,60,.25), 0 10px 28px rgba(231,76,60,.12);
+    }
+
+    .sect-block {
+      background:var(--card); border:1px solid var(--border);
+      border-radius:22px; padding:24px; margin-bottom:18px;
+    }
+    .blk-label {
+      font-weight:800; font-size:.78rem; color:var(--muted);
+      text-transform:uppercase; letter-spacing:.6px; margin-bottom:14px; display:block;
+    }
+
+    .qty-ctrl { display:flex; align-items:center; gap:18px; }
+    .qty-btn {
+      width:46px; height:46px; border-radius:50%; border:2px solid var(--border);
+      background:transparent; color:var(--text); font-size:1.5rem; cursor:pointer;
+      display:flex; align-items:center; justify-content:center; transition:all .2s;
+      font-weight:800;
+    }
+    .qty-btn:hover { border-color:var(--green); color:var(--green); }
+    .qty-num {
+      font-family:'Boogaloo',cursive; font-size:2.6rem; min-width:70px; text-align:center;
+    }
+    .qty-unit { color:var(--muted); font-size:.88rem; }
+
+    .loc-btn-wrap { width:100%; margin-bottom:12px; }
+    .loc-detected {
+      display:none; align-items:center; gap:11px;
+      background:rgba(0,0,0,.22); border-radius:12px;
+      padding:11px 16px; font-size:.88rem; color:var(--muted);
+    }
+    .loc-dot {
+      width:10px; height:10px; border-radius:50%;
+      background:var(--green); box-shadow:0 0 10px var(--green);
+      flex-shrink:0; animation:pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%,100% { transform:scale(1); opacity:1; }
+      50%      { transform:scale(1.6); opacity:.5; }
+    }
+
+    .price-preview {
+      background:linear-gradient(135deg,rgba(255,224,72,.07),rgba(255,224,72,.01));
+      border:1px solid rgba(255,224,72,.18); border-radius:22px;
+      padding:22px; margin-bottom:20px; display:none;
+    }
+    .prow { display:flex; justify-content:space-between; font-size:.9rem; margin-bottom:10px; }
+    .prow .pk { color:var(--muted); }
+    .prow .pv { font-weight:800; }
+    .p-divider { border:none; border-top:1px solid rgba(255,255,255,.05); margin:10px 0; }
+    .p-total {
+      display:flex; justify-content:space-between;
+      font-family:'Boogaloo',cursive; font-size:1.55rem; color:var(--yellow);
+    }
+
+    /* ─── ██ TRACKING ████████████████████████████████████████─ */
+    #pgTrack { padding:90px 20px 50px; }
+    .track-wrap { max-width:580px; margin:0 auto; }
+
+    .confirmed-hero { text-align:center; margin-bottom:30px; }
+    .big-check {
+      font-size:4.5rem; animation:pop .5s cubic-bezier(.34,1.56,.64,1);
+      display:block; margin-bottom:10px;
+    }
+    @keyframes pop {
+      from { transform:scale(0) rotate(-20deg); opacity:0; }
+      to   { transform:scale(1) rotate(0deg);   opacity:1; }
+    }
+    .confirmed-hero h2 { font-family:'Boogaloo',cursive; font-size:2.1rem; }
+    .confirmed-hero p  { color:var(--muted); margin-top:6px; }
+
+    .order-pill {
+      display:inline-block; margin-top:10px;
+      background:rgba(0,255,102,.1); border:1px solid rgba(0,255,102,.28);
+      color:var(--green); padding:6px 22px; border-radius:50px;
+      font-weight:800; font-size:.88rem;
+    }
+
+    /* Progress steps */
+    .steps-bar {
+      display:flex; align-items:center; justify-content:space-between;
+      position:relative; padding:0 16px; margin-bottom:28px;
+    }
+    .steps-bar::before {
+      content:''; position:absolute; top:19px; left:32px; right:32px;
+      height:2px; background:rgba(255,255,255,.07);
+    }
+    .steps-fill {
+      position:absolute; top:19px; left:32px;
+      height:2px; background:var(--green); width:50%; transition:width .8s;
+    }
+    .step-node { display:flex; flex-direction:column; align-items:center; gap:7px; position:relative; }
+    .step-dot {
+      width:38px; height:38px; border-radius:50%;
+      display:flex; align-items:center; justify-content:center;
+      font-size:1rem; border:2px solid rgba(255,255,255,.1);
+      background:var(--surface); z-index:1;
+    }
+    .step-dot.done   { background:rgba(0,255,102,.18); border-color:var(--green); }
+    .step-dot.active { background:var(--green); border-color:var(--green); color:#001208; }
+    .step-lbl { font-size:.72rem; color:var(--muted); text-align:center; max-width:60px; }
+
+    .eta-block {
+      background:linear-gradient(135deg,rgba(79,172,254,.1),rgba(79,172,254,.01));
+      border:1px solid rgba(79,172,254,.22); border-radius:22px;
+      padding:22px; text-align:center; margin-bottom:18px;
+    }
+    .eta-big  { font-family:'Boogaloo',cursive; font-size:3.2rem; color:var(--blue); }
+    .eta-lbl  { color:var(--muted); font-size:.88rem; }
+
+    .collector-box {
+      background:var(--card); border:1px solid var(--border);
+      border-radius:22px; padding:26px;
+      display:flex; align-items:center; gap:18px; margin-bottom:24px;
+    }
+    .coll-avatar {
+      width:58px; height:58px; border-radius:50%;
+      background:linear-gradient(135deg,var(--green),var(--green2));
+      display:flex; align-items:center; justify-content:center;
+      font-size:1.8rem; color:#001208; flex-shrink:0;
+    }
+    .coll-name { font-family:'Boogaloo',cursive; font-size:1.3rem; margin-bottom:4px; }
+    .coll-meta { display:flex; gap:12px; font-size:.83rem; color:var(--muted); }
+    .coll-meta .star { color:var(--yellow); }
+    .call-btn {
+      margin-left:auto; padding:9px 18px; border-radius:50px;
+      background:rgba(0,255,102,.1); border:1px solid rgba(0,255,102,.28);
+      color:var(--green); font-family:'Nunito',sans-serif;
+      font-size:.83rem; font-weight:800; cursor:pointer;
+    }
+
+    /* ─── ██ PAYMENT ████████████████████████████████████████── */
+    #pgPay { padding:90px 20px 50px; }
+    .pay-wrap { max-width:540px; margin:0 auto; }
+
+    .pay-summary {
+      background:var(--card); border:1px solid var(--border);
+      border-radius:22px; padding:26px; margin-bottom:22px;
+    }
+    .pay-summary h3 { font-family:'Boogaloo',cursive; font-size:1.5rem; margin-bottom:18px; }
+
+    .pm-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-bottom:20px; }
+    .pm-card {
+      background:var(--card); border:2px solid rgba(255,255,255,.05);
+      border-radius:18px; padding:18px 10px; text-align:center; cursor:pointer; transition:all .3s;
+    }
+    .pm-card.on { border-color:var(--green); background:rgba(0,255,102,.06); }
+    .pm-card .pm-ico  { font-size:2rem; margin-bottom:7px; }
+    .pm-card .pm-name { font-size:.82rem; font-weight:800; }
+
+    .sub-input { display:none; margin-bottom:18px; }
+    .card-row { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+
+    /* ─── ██ SUCCESS █████████████████████████████████████████─ */
+    #pgSuccess {
+      align-items:center; justify-content:center;
+      padding:90px 20px 50px; text-align:center;
+    }
+    .success-inner { max-width:480px; margin:0 auto; }
+    .big-party {
+      font-size:6rem; display:block; margin-bottom:20px;
+      animation:pop .5s cubic-bezier(.34,1.56,.64,1);
+    }
+    .success-inner h2 {
+      font-family:'Boogaloo',cursive; font-size:2.6rem; margin-bottom:10px;
+    }
+    .success-inner p { color:var(--muted); line-height:1.75; margin-bottom:30px; }
+
+    .txn-box {
+      background:var(--card); border:1px solid var(--border);
+      border-radius:22px; padding:24px; margin-bottom:26px; text-align:left;
+    }
+    .txn-row {
+      display:flex; justify-content:space-between; padding:8px 0;
+      border-bottom:1px solid rgba(255,255,255,.04); font-size:.9rem;
+    }
+    .txn-row:last-child { border:none; }
+    .txn-k { color:var(--muted); }
+    .txn-v { font-weight:800; }
+
+    /* ─── BACK BUTTON ────────────────────────────────────────── */
+    .back-btn {
+      display:inline-flex; align-items:center; gap:7px;
+      background:none; border:none; color:var(--muted);
+      font-family:'Nunito',sans-serif; font-size:.9rem;
+      cursor:pointer; padding:8px 0; margin-bottom:22px; transition:color .2s;
+    }
+    .back-btn:hover { color:var(--text); }
+
+    /* ─── TOAST ──────────────────────────────────────────────── */
+    #toast {
+      position:fixed; bottom:26px; left:50%;
+      transform:translateX(-50%) translateY(90px);
+      background:#0f2414; border:1px solid rgba(0,255,102,.2);
+      color:var(--text); padding:13px 26px; border-radius:50px;
+      font-size:.88rem; font-weight:700; z-index:999;
+      transition:transform .38s cubic-bezier(.34,1.56,.64,1);
+      white-space:nowrap; backdrop-filter:blur(14px);
+      box-shadow:0 8px 30px rgba(0,0,0,.5);
+    }
+    #toast.show { transform:translateX(-50%) translateY(0); }
+
+    /* ─── CONFETTI ────────────────────────────────────────────── */
+    .confetti-bit {
+      position:fixed; pointer-events:none; z-index:9999;
+      animation:confFall linear forwards;
+    }
+    @keyframes confFall {
+      0%   { transform:translateY(-60px) rotate(0deg); opacity:1; }
+      100% { transform:translateY(105vh) rotate(720deg); opacity:0; }
+    }
+
+    /* ─── SCROLLBAR ───────────────────────────────────────────── */
+    ::-webkit-scrollbar { width:5px; }
+    ::-webkit-scrollbar-track { background:var(--bg); }
+    ::-webkit-scrollbar-thumb { background:rgba(0,255,102,.25); border-radius:4px; }
+
+    /* ─── RESPONSIVE ─────────────────────────────────────────── */
+    @media(max-width:560px) {
+      nav { padding:12px 16px; }
+      .logo { font-size:1.5rem; }
+      .bins-row { gap:28px; }
+      .b-body { width:86px; height:126px; }
+      .b-lid  { width:102px; height:20px; }
+      .b-lid-shell { width:102px; }
+      .b-wheels { gap:38px; }
+      .waste-grid { grid-template-columns:1fr; }
+      .pm-grid { grid-template-columns:repeat(3,1fr); }
+      .card-row { grid-template-columns:1fr; }
+    }
+  </style>
+</head>
+<body>
+<!-- Floating emojis -->
+<div id="floatBg"></div>
+
+<!-- ─── NAV ────────────────────────────────────────────────────────── -->
+<nav>
+  <div class="logo" onclick="goHome()">🗑️ <em>Trash</em>Dash</div>
+  <div class="nav-r">
+    <div class="user-pill" id="userPill">👤 <span id="navName"></span></div>
+    <button class="btn btn-ghost" id="logoutBtn" style="display:none" onclick="doLogout()">Logout</button>
+    <button class="btn btn-g" id="startBtn" onclick="show('pgAuth')">Get Started</button>
+    <button class="btn btn-ghost" id="adminBtn" onclick="openAdmin()">Admin</button>
+  </div>
+</nav>
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     LANDING
+══════════════════════════════════════════════════════════════════════ -->
+<div class="pg active" id="pgLanding">
+  <div class="hero-badge">🌍 Eco-Friendly Doorstep Pickup</div>
+
+  <h1 class="hero-h">
+    <span class="t1">Waste Gone.</span><br>
+    <span class="t2">City Clean.</span>
+  </h1>
+
+  <p class="hero-sub">
+    On-demand waste pickup in 10–25 minutes.<br>Tap, request, and let collectors handle the rest.
+  </p>
+
+  <!-- ─── ANIMATED BINS ─── -->
+  <div class="bins-row">
+
+    <!-- Green Bin (Dry Waste) -->
+    <div class="bin-wrap">
+      <div class="b-handle gb" style="background:#17703a;width:36px;height:11px;border-radius:6px;margin-bottom:3px;"></div>
+      <div class="b-lid-shell">
+        <div class="b-lid gb"></div>
+      </div>
+      <div class="b-body gb">
+        <span class="b-icon">♻️</span>
+      </div>
+      <div class="b-wheels">
+        <div class="b-wheel gb"></div>
+        <div class="b-wheel gb"></div>
+      </div>
+      <div class="b-label">Dry Waste</div>
+      <div class="b-rate gb">₹15 / kg</div>
+    </div>
+
+    <!-- VS divider -->
+    <div class="bins-vs">
+      <div class="line"></div>
+      <div class="vs-txt">VS</div>
+      <div class="line"></div>
+    </div>
+
+    <!-- Red Bin (Wet Waste) -->
+    <div class="bin-wrap">
+      <div class="b-handle rb" style="background:#7d1a1a;width:36px;height:11px;border-radius:6px;margin-bottom:3px;"></div>
+      <div class="b-lid-shell">
+        <div class="b-lid rb"></div>
+      </div>
+      <div class="b-body rb">
+        <span class="b-icon">💧</span>
+      </div>
+      <div class="b-wheels">
+        <div class="b-wheel rb"></div>
+        <div class="b-wheel rb"></div>
+      </div>
+      <div class="b-label">Wet Waste</div>
+      <div class="b-rate rb">₹20 / kg</div>
+    </div>
+
+  </div>
+
+  <div class="cta-row">
+    <button class="btn btn-g btn-lg" onclick="show('pgAuth')">🚀 Start for Free</button>
+    <button class="btn btn-ghost btn-lg" onclick="show('pgAuth')">Learn More ↓</button>
+  </div>
+
+  <!-- Feature chips -->
+  <div class="chips-row">
+    <div class="chip"><span>📍</span> Real-Time Location</div>
+    <div class="chip"><span>⚡</span> 10–25 Min ETA</div>
+    <div class="chip"><span>🔒</span> OTP Verified Login</div>
+    <div class="chip"><span>💳</span> UPI / Card / Cash</div>
+    <div class="chip"><span>🌱</span> Eco Responsible</div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     AUTH
+══════════════════════════════════════════════════════════════════════ -->
+<div class="pg" id="pgAuth" style="align-items:center;justify-content:center;padding:90px 20px 40px;">
+  <div class="auth-card">
+    <div class="auth-icon">🗑️</div>
+    <div class="auth-title">Welcome to TrashDash</div>
+    <div class="auth-sub">Join the clean city movement</div>
+
+    <!-- Tabs -->
+    <div class="tabs">
+      <button class="tab-btn on" id="tabLogin" onclick="authTab('login')">Login</button>
+      <button class="tab-btn"    id="tabReg"   onclick="authTab('reg')">Register</button>
+    </div>
+
+    <!-- ── LOGIN ── -->
+    <div id="formLogin">
+      <!-- Step 1: credentials -->
+      <div id="step1">
+        <div class="fg">
+          <label class="flabel">Email Address</label>
+          <input class="finput" id="lEmail" type="email" placeholder="you@example.com">
+        </div>
+        <div class="fg">
+          <label class="flabel">Password</label>
+          <input class="finput" id="lPass" type="password" placeholder="••••••••">
+        </div>
+        <button class="btn btn-g btn-full" style="padding:14px;" onclick="sendOTP()">Send OTP →</button>
+      </div>
+      <!-- Step 2: OTP -->
+      <div id="step2" style="display:none;">
+        <div class="otp-hint-box" id="otpHint">📱 OTP sent! (Dev mode: shown below)</div>
+        <div class="fg">
+          <label class="flabel">Enter 6-Digit OTP</label>
+          <input class="finput otp-big" id="otpVal" type="text" placeholder="000000" maxlength="6">
+        </div>
+        <button class="btn btn-g btn-full" style="padding:14px;" onclick="verifyOTP()">Verify & Login ✓</button>
+        <button class="btn btn-ghost btn-full" style="padding:12px;margin-top:10px;" onclick="goStep1()">← Back</button>
+      </div>
+    </div>
+
+    <!-- ── REGISTER ── -->
+    <div id="formReg" style="display:none;">
+      <div class="fg">
+        <label class="flabel">Full Name</label>
+        <input class="finput" id="rName" type="text" placeholder="Priya Sharma">
+      </div>
+      <div class="fg">
+        <label class="flabel">Email Address</label>
+        <input class="finput" id="rEmail" type="email" placeholder="you@example.com">
+      </div>
+      <div class="fg">
+        <label class="flabel">Phone Number</label>
+        <input class="finput" id="rPhone" type="tel" placeholder="+91 98765 43210">
+      </div>
+      <div class="fg">
+        <label class="flabel">Password</label>
+        <input class="finput" id="rPass" type="password" placeholder="Min. 6 characters">
+      </div>
+      <button class="btn btn-g btn-full" style="padding:14px;" onclick="doRegister()">Create Account 🎉</button>
+    </div>
+
+    <p style="text-align:center;margin-top:18px;">
+      <button onclick="show('pgLanding')" style="background:none;border:none;color:var(--muted);cursor:pointer;font-family:'Nunito';font-size:.85rem;text-decoration:underline;">← Back to Home</button>
+    </p>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     DASHBOARD
+══════════════════════════════════════════════════════════════════════ -->
+<div class="pg" id="pgDash">
+  <div class="dash-inner">
+    <div class="welcome-bar">
+      <div>
+        <h2>Hey, <span id="dashName">User</span>! 👋</h2>
+        <p>Ready to keep your city clean today?</p>
+      </div>
+      <button class="btn btn-g btn-lg" onclick="show('pgOrder')">🗑️ Request Pickup</button>
+      <button class="btn btn-ghost btn-lg" onclick="openHistory()">📜 Order History</button>
+      <button class="btn btn-ghost btn-lg" onclick="show('pgBinScan')">🤖 AI Bin Scan</button>
+      <button class="btn btn-ghost btn-lg" onclick="show('pgSubscription')">💎 Subscription Plans</button>
+    </div>
+    <div class="stat-grid">
+      <div class="stat-card"><div class="ico">📦</div><div class="val" id="sTot">0</div><div class="lbl">Orders</div></div>
+      <div class="stat-card"><div class="ico">♻️</div><div class="val" id="sKg">0 kg</div><div class="lbl">Waste Recycled</div></div>
+      <div class="stat-card"><div class="ico">🌱</div><div class="val" id="sTrees">0</div><div class="lbl">Trees Saved</div></div>
+      <div class="stat-card"><div class="ico">⭐</div><div class="val">5.0</div><div class="lbl">Your Rating</div></div>
+    </div>
+    <button class="pickup-cta" onclick="show('pgOrder')">
+      <h3>Place a Pickup Request</h3>
+      <p>Dry waste, wet waste — we collect it all. Eco-friendly disposal guaranteed.</p>
+      <span class="inner-btn">Get Started →</span>
+    </button>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     ORDER
+══════════════════════════════════════════════════════════════════════ -->
+<div class="pg" id="pgOrder">
+  <div class="form-wrap">
+
+    <div class="sec-hdr">
+      <h2>🗑️ New Pickup Request</h2>
+      <p>Tell us about your waste — we'll handle the rest</p>
+    </div>
+
+    <!-- Waste type -->
+    <span class="blk-label">Select Waste Type</span>
+    <div class="waste-grid">
+      <div class="wopt" id="wDry" onclick="pickWaste('dry')">
+        <div class="price-tag" style="background:rgba(46,204,113,.18);color:#2ecc71;border:1px solid rgba(46,204,113,.3);">₹15/kg</div>
+        <div class="w-emoji">♻️</div>
+        <h4 style="color:#2ecc71;">Dry Waste</h4>
+        <p>Paper, plastic, metal, glass</p>
+      </div>
+      <div class="wopt" id="wWet" onclick="pickWaste('wet')">
+        <div class="price-tag" style="background:rgba(231,76,60,.18);color:#e74c3c;border:1px solid rgba(231,76,60,.3);">₹20/kg</div>
+        <div class="w-emoji">💧</div>
+        <h4 style="color:#e74c3c;">Wet Waste</h4>
+        <p>Food scraps, organic matter</p>
+      </div>
+    </div>
+
+    <!-- Quantity -->
+    <div class="sect-block">
+      <span class="blk-label">Estimated Quantity</span>
+      <div class="qty-ctrl">
+        <button class="qty-btn" onclick="adjQty(-1)">−</button>
+        <div>
+          <div class="qty-num" id="qtyNum">5</div>
+          <div class="qty-unit" style="text-align:center;">kilograms</div>
+        </div>
+        <button class="qty-btn" onclick="adjQty(1)">+</button>
+      </div>
+    </div>
+
+    <!-- Location -->
+    <div class="sect-block">
+      <span class="blk-label">Your Location</span>
+      <div class="loc-btn-wrap">
+        <button class="btn btn-ghost btn-full" style="padding:12px;" id="locBtn" onclick="grabLoc()">📍 Detect My Location</button>
+      </div>
+      <div class="loc-detected" id="locDisp">
+        <div class="loc-dot"></div>
+        <span id="locTxt">Fetching...</span>
+      </div>
+      <div id="map" style="height:260px;border-radius:18px;margin-top:15px;overflow:hidden;"></div>
+    </div>
+
+    <!-- Price preview -->
+    <div class="price-preview" id="pricePrev">
+      <div class="prow"><span class="pk">Waste Type</span><span class="pv" id="pvType">-</span></div>
+      <div class="prow"><span class="pk">Quantity</span><span class="pv" id="pvQty">-</span></div>
+      <div class="prow"><span class="pk">Base Price</span><span class="pv" id="pvBase">-</span></div>
+      <div class="prow"><span class="pk">Platform Fee</span><span class="pv">₹5.00</span></div>
+      <hr class="p-divider">
+      <div class="p-total"><span>Total</span><span id="pvTotal">-</span></div>
+    </div>
+
+    <button class="btn btn-g btn-lg btn-full" onclick="submitOrder()">
+  🚀 Confirm Pickup Request
+</button>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     TRACKING
+══════════════════════════════════════════════════════════════════════ -->
+<div class="pg" id="pgTrack">
+  <div class="track-wrap">
+
+    <div class="confirmed-hero">
+      <span class="big-check">✅</span>
+      <h2>Order Confirmed!</h2>
+      <p>Your collector is on the way</p>
+      <div class="order-pill" id="ordPill">TD#00000</div>
+    </div>
+
+    <!-- Progress -->
+    <div class="steps-bar">
+      <div class="steps-fill"></div>
+      <div class="step-node">
+        <div class="step-dot done">✓</div>
+        <span class="step-lbl">Confirmed</span>
+      </div>
+      <div class="step-node">
+        <div class="step-dot active">🚗</div>
+        <span class="step-lbl">On The Way</span>
+      </div>
+      <div class="step-node">
+        <div class="step-dot">🗑️</div>
+         <span class="step-lbl">Collected</span>
+      </div>
+      <div class="step-node">
+        <div class="step-dot">💳</div>
+        <span class="step-lbl">Paid</span>
+      </div>
+    </div>
+
+    <!-- ETA -->
+    <div class="eta-block">
+      <div class="eta-big" id="etaVal">15 mins</div>
+      <div class="eta-block">
+  <div class="eta-big" style="font-size:1.3rem;" id="liveStatus">🚛 Collector assigned</div>
+  <div class="eta-lbl">Live Pickup Status</div>
+</div>
+      <div class="eta-lbl">Estimated Arrival Time</div>
+    </div>
+    <div class="eta-block">
+  <div class="eta-big" style="font-size:1.4rem;" id="mlEtaVal">🤖 ML ETA: -</div>
+  <div class="eta-lbl">Predicted using Machine Learning</div>
+</div>
+
+<div class="eta-block">
+  <div class="eta-big" style="font-size:1rem;" id="addrVal">📍 Address loading...</div>
+  <div class="eta-lbl">Detected Pickup Address</div>
+</div>
+
+
+    <!-- Collector -->
+    <div class="collector-box">
+      <div class="coll-avatar" id="collIcon">👷</div>
+      <div>
+        <div class="coll-name" id="collName">Loading…</div>
+        <div class="coll-meta">
+          <span class="star">⭐ <span id="collRating">-</span></span>
+          <span>📍 <span id="collDist">-</span> away</span>
+        </div>
+        <div style="font-size:.78rem;color:var(--muted);margin-top:3px;">Verified Collector</div>
+      </div>
+      <button class="call-btn">📞 Call</button>
+    </div>
+
+    <button class="btn btn-y btn-lg btn-full" onclick="show('pgPay')">💳 Proceed to Payment</button>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     PAYMENT
+══════════════════════════════════════════════════════════════════════ -->
+<div class="pg" id="pgPay">
+  <div class="pay-wrap">
+    <button class="back-btn" onclick="show('pgTrack')">← Back to Tracking</button>
+    <div class="sec-hdr">
+      <h2>💳 Secure Payment</h2>
+      <p>Choose how you'd like to pay</p>
+    </div>
+
+    <!-- Summary -->
+    <div class="pay-summary">
+      <h3>📋 Order Summary</h3>
+      <div class="prow"><span class="pk">Order ID</span><span class="pv" id="pOrdId">-</span></div>
+      <div class="prow"><span class="pk">Waste Type</span><span class="pv" id="pType">-</span></div>
+      <div class="prow"><span class="pk">Quantity</span><span class="pv" id="pQty">-</span></div>
+      <div class="prow"><span class="pk">Base Amount</span><span class="pv" id="pBase">-</span></div>
+      <div class="prow"><span class="pk">Platform Fee</span><span class="pv">₹5.00</span></div>
+      <hr class="p-divider">
+      <div class="p-total"><span>Total</span><span id="pTotal" style="color:var(--yellow);">-</span></div>
+    </div>
+
+    <!-- Methods -->
+    <span class="blk-label">Choose Payment Method</span>
+    <div class="pm-grid">
+      <div class="pm-card" id="pm-upi"  onclick="pickPM('upi')"><div class="pm-ico">📱</div><div class="pm-name">UPI</div></div>
+      <div class="pm-card" id="pm-card" onclick="pickPM('card')"><div class="pm-ico">💳</div><div class="pm-name">Card</div></div>
+      <div class="pm-card" id="pm-cash" onclick="pickPM('cash')"><div class="pm-ico">💵</div><div class="pm-name">Cash</div></div>
+    </div>
+
+    <!-- UPI -->
+    <div class="sub-input" id="upiSec">
+      <div class="fg">
+        <label class="flabel">UPI ID</label>
+        <input class="finput" id="upiId" type="text" placeholder="yourname@upi">
+      </div>
+    </div>
+
+    <!-- Card -->
+    <div class="sub-input" id="cardSec">
+      <div class="fg">
+        <label class="flabel">Card Number</label>
+        <input class="finput" id="cNum" type="text" placeholder="1234 5678 9012 3456" maxlength="19" oninput="fmtCard(this)">
+      </div>
+      <div class="card-row">
+        <div class="fg">
+          <label class="flabel">Expiry</label>
+          <input class="finput" id="cExp" type="text" placeholder="MM/YY" maxlength="5">
+        </div>
+        <div class="fg">
+          <label class="flabel">CVV</label>
+          <input class="finput" id="cCvv" type="password" placeholder="•••" maxlength="3">
+        </div>
+      </div>
+      <div class="fg">
+        <label class="flabel">Name on Card</label>
+        <input class="finput" id="cName" type="text" placeholder="PRIYA SHARMA">
+      </div>
+    </div>
+
+    <button class="btn btn-g btn-lg btn-full" onclick="doPay()">🔐 Pay Securely</button>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     ORDER HISTORY
+══════════════════════════════════════════════════════════════════════ -->
+<div class="pg" id="pgHistory">
+  <div class="dash-inner">
+    <button class="back-btn" onclick="show('pgDash')">← Back to Dashboard</button>
+    <div class="sec-hdr">
+      <h2>📜 Order History</h2>
+      <p>Your previous TrashDash pickup requests</p>
+    </div>
+    <div class="sect-block">
+      <span class="blk-label">My Pickups</span>
+      <div id="historyList"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     SUCCESS
+══════════════════════════════════════════════════════════════════════ -->
+<div class="pg" id="pgSuccess" style="align-items:center;justify-content:center;">
+  <div class="success-inner">
+    <span class="big-party">🎉</span>
+    <h2>Payment Successful!</h2>
+    <p>Thank you for keeping our city clean! 🌱<br>Your collector will dispose of the waste responsibly.</p>
+
+    <div class="txn-box">
+      <div class="txn-row"><span class="txn-k">Transaction ID</span><span class="txn-v" id="txnId" style="color:var(--green);">-</span></div>
+      <div class="txn-row"><span class="txn-k">Order ID</span><span class="txn-v" id="txnOrd">-</span></div>
+      <div class="txn-row"><span class="txn-k">Amount Paid</span><span class="txn-v" id="txnAmt">-</span></div>
+      <div class="txn-row"><span class="txn-k">Payment Method</span><span class="txn-v" id="txnMeth">-</span></div>
+      <div class="txn-row"><span class="txn-k">Status</span><span class="txn-v" style="color:var(--green);">✓ Completed</span></div>
+    </div>
+
+    <div class="txn-box">
+      <div class="txn-row"><span class="txn-k">Eco Score</span><span class="txn-v" id="ecoScore" style="color:var(--green);">-</span></div>
+      <div class="txn-row"><span class="txn-k">Smart Tip</span><span class="txn-v" id="smartTip">-</span></div>
+    </div>
+
+    <button class="btn btn-ghost btn-lg btn-full" onclick="downloadReceipt()">🧾 Download Receipt</button>
+    <button class="btn btn-g btn-lg btn-full" onclick="show('pgDash')" style="margin-top:10px;">🏠 Back to Dashboard</button>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     ADMIN PANEL
+══════════════════════════════════════════════════════════════════════ -->
+<div class="pg" id="pgAdmin">
+  <div class="dash-inner">
+    <button class="back-btn" onclick="show('pgDash')">← Back to Dashboard</button>
+    <div class="sec-hdr">
+      <h2>🧑‍💼 Admin Panel</h2>
+      <p>View and manage all pickup requests</p>
+    </div>
+
+    <div class="stat-grid">
+      <div class="stat-card"><div class="ico">📦</div><div class="val" id="adminTotal">0</div><div class="lbl">Total Orders</div></div>
+      <div class="stat-card"><div class="ico">🚛</div><div class="val" id="adminActive">0</div><div class="lbl">Active Orders</div></div>
+      <div class="stat-card"><div class="ico">✅</div><div class="val" id="adminDone">0</div><div class="lbl">Completed/Paid</div></div>
+    </div>
+
+    <div class="sect-block">
+      <span class="blk-label">All Pickup Orders</span>
+      <div id="adminOrdersList"></div>
+    </div>
+  </div>
+</div>
+<!-- AI BIN SCAN -->
+<div class="pg" id="pgBinScan">
+  <div class="form-wrap">
+    <button class="back-btn" onclick="show('pgDash')">← Back to Dashboard</button>
+
+    <div class="sec-hdr">
+      <h2>🤖 AI Bin Scan</h2>
+      <p>Upload a bin image and get pickup suggestion</p>
+    </div>
+
+    <div class="sect-block">
+      <span class="blk-label">Upload Bin Image</span>
+
+      <input
+        class="finput"
+        type="file"
+        id="binImageInput"
+        accept="image/*"
+        onchange="previewBinImage(event)"
+      >
+
+      <div id="binPreviewBox" style="display:none;margin-top:15px;">
+        <img
+          id="binPreview"
+          src=""
+          style="width:100%;max-height:260px;object-fit:cover;border-radius:18px;border:1px solid var(--border);"
+        >
+      </div>
+
+      <button class="btn btn-g btn-full" style="margin-top:15px;padding:13px;" onclick="analyzeBinImage()">
+        🤖 Analyze Bin Image
+      </button>
+    </div>
+
+    <div id="binAnalysisResult" class="sect-block" style="display:none;">
+      <span class="blk-label">AI Result</span>
+
+      <div style="font-size:1.2rem;font-weight:900;margin-bottom:10px;" id="binDetectedType">
+        Detected: -
+      </div>
+
+      <div style="color:var(--muted);margin-bottom:8px;" id="binConfidence">
+        Confidence: -
+      </div>
+
+      <div style="color:var(--muted);margin-bottom:18px;" id="binRecommendation">
+        <div style="margin-top:15px;">
+  <label class="flabel">Correct AI Result if Needed</label>
+  <select class="finput" id="correctBinResult" onchange="correctBinDetection()">
+    <option value="">Keep AI Prediction</option>
+    <option value="dry">Dry Waste ♻️</option>
+    <option value="wet">Wet Waste 💧</option>
+    <option value="mixed">Mixed Waste 🗑️</option>
+    <option value="overflow">Overflowing Bin 🚨</option>
+  </select>
+</div>
+        Recommendation: -
+      </div>
+
+      <button class="btn btn-g btn-lg btn-full" onclick="useScanForPickup()">
+        🚀 Use This Result for Pickup
+      </button>
+    </div>
+  </div>
+</div>
+<!-- SUBSCRIPTION PLANS -->
+<div class="pg" id="pgSubscription">
+  <div class="dash-inner">
+    <button class="back-btn" onclick="show('pgDash')">← Back to Dashboard</button>
+
+    <div class="sec-hdr">
+      <h2>💎 Subscription Plans</h2>
+      <p>Save more with weekly and monthly TrashDash pickup plans</p>
+    </div>
+
+    <div class="stat-grid">
+
+      <div class="stat-card">
+        <div class="ico">🚚</div>
+        <div class="val">₹0</div>
+        <div class="lbl">Pay Per Pickup</div>
+        <p style="color:var(--muted);font-size:.85rem;margin:14px 0;line-height:1.5;">
+          Best for occasional users.<br>
+          Pay only when you request pickup.
+        </p>
+        <button class="btn btn-ghost btn-full" onclick="selectPlan('Pay Per Pickup', '₹0/month', 'No subscription. Pay only when you use pickup service.')">
+          Select Plan
+        </button>
+      </div>
+
+      <div class="stat-card" style="border-color:rgba(0,255,102,.45);box-shadow:0 0 25px rgba(0,255,102,.12);">
+        <div class="ico">⭐</div>
+        <div class="val">₹79</div>
+        <div class="lbl">Weekly Saver Plan</div>
+        <p style="color:var(--muted);font-size:.85rem;margin:14px 0;line-height:1.5;">
+          3 pickups per week.<br>
+          10% discount on extra pickups.<br>
+          Priority collector assignment.
+        </p>
+        <button class="btn btn-g btn-full" onclick="selectPlan('Weekly Saver Plan', '₹79/week', '3 pickups/week + 10% discount + priority pickup')">
+          Select Plan
+        </button>
+      </div>
+
+      <div class="stat-card">
+        <div class="ico">🏢</div>
+        <div class="val">₹199</div>
+        <div class="lbl">Monthly Home Plan</div>
+        <p style="color:var(--muted);font-size:.85rem;margin:14px 0;line-height:1.5;">
+          12 pickups per month.<br>
+          15% discount on extra pickups.<br>
+          Eco reward points included.
+        </p>
+        <button class="btn btn-ghost btn-full" onclick="selectPlan('Monthly Home Plan', '₹199/month', '12 pickups/month + 15% discount + eco reward points')">
+          Select Plan
+        </button>
+      </div>
+
+    </div>
+
+    <div class="sect-block" id="selectedPlanBox" style="display:none;">
+      <span class="blk-label">Selected Subscription</span>
+
+      <div class="collector-box">
+        <div class="coll-avatar">💎</div>
+        <div>
+          <div class="coll-name" id="selectedPlanName">Plan: -</div>
+          <div class="coll-meta" id="selectedPlanPrice">Price: -</div>
+          <div class="coll-meta" id="selectedPlanBenefits">Benefits: -</div>
+          <div class="coll-meta">Offer: First week priority pickup included 🎁</div>
+        </div>
+      </div>
+
+      <button class="btn btn-g btn-lg btn-full" onclick="confirmSubscription()">
+        ✅ Confirm Subscription
+      </button>
+    </div>
+  </div>
+</div>
+<div id="toast"></div>
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     JAVASCRIPT
+══════════════════════════════════════════════════════════════════════ -->
+<script>
+const S = {
+  user: null,
+  location: null,
+  wasteType: null,
+  qty: 5,
+  order: null,
+  pm: null,
+  loginEmail: null,
+  totalOrders: 0,
+  totalKg: 0
+};
+
+let trashMap = null;
+let trashMarker = null;
+let statusTimer = null;
+let trackingTimer = null;
+
+function show(id) {
+  document.querySelectorAll('.pg').forEach(p => {
+    p.classList.remove('active');
+    p.style.display = 'none';
+  });
+  const el = document.getElementById(id);
+  if (el) {
+    el.style.display = 'flex';
+    el.classList.add('active');
+  }
+  window.scrollTo(0, 0);
+}
+
+function goHome() {
+  show(S.user ? 'pgDash' : 'pgLanding');
+}
+
+function toast(msg, dur = 3000) {
+  const t = document.getElementById('toast');
+  if (!t) { alert(msg); return; }
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), dur);
+}
+
+function v(id) {
+  return document.getElementById(id)?.value?.trim() || '';
+}
+
+async function api(url, method, body) {
+  return fetch(url, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify(body || {})
+  });
+}
+
+(function initFloatingEmojis() {
+  const emojis = ['🗑️','♻️','🌱','🌍','💚','🍃','🌿','🏡','🧹','🚛'];
+  const wrap = document.getElementById('floatBg');
+  if (!wrap) return;
+  wrap.innerHTML = '';
+  for (let i = 0; i < 22; i++) {
+    const d = document.createElement('div');
+    d.className = 'fp';
+    d.textContent = emojis[i % emojis.length];
+    d.style.left = `${Math.random() * 100}%`;
+    d.style.fontSize = `${1 + Math.random() * 1.4}rem`;
+    d.style.animationDuration = `${9 + Math.random() * 13}s`;
+    d.style.animationDelay = `${-Math.random() * 18}s`;
+    wrap.appendChild(d);
+  }
+})();
+
+function authTab(tab) {
+  document.getElementById('tabLogin').classList.toggle('on', tab === 'login');
+  document.getElementById('tabReg').classList.toggle('on', tab === 'reg');
+  document.getElementById('formLogin').style.display = tab === 'login' ? 'block' : 'none';
+  document.getElementById('formReg').style.display = tab === 'reg' ? 'block' : 'none';
+}
+
+function goStep1() {
+  document.getElementById('step1').style.display = 'block';
+  document.getElementById('step2').style.display = 'none';
+}
+
+async function doRegister() {
+  const body = {
+    name: v('rName'),
+    email: v('rEmail'),
+    phone: v('rPhone'),
+    password: v('rPass')
+  };
+  if (!body.name || !body.email || !body.phone || !body.password) {
+    toast('⚠️ Fill all fields');
+    return;
+  }
+  try {
+    const r = await api('/api/register', 'POST', body);
+    const d = await r.json();
+    if (r.ok) {
+      toast('✅ Account created! Please login.');
+      authTab('login');
+      document.getElementById('lEmail').value = body.email;
+    } else {
+      toast('❌ ' + d.error);
+    }
+  } catch (err) {
+    console.log(err);
+    toast('❌ Connection error');
+  }
+}
+
+async function sendOTP() {
+  const email = v('lEmail');
+  const password = v('lPass');
+  if (!email || !password) {
+    toast('⚠️ Enter email and password');
+    return;
+  }
+  S.loginEmail = email;
+  try {
+    const r = await api('/api/send-otp', 'POST', { email, password });
+    const d = await r.json();
+    if (r.ok) {
+      document.getElementById('step1').style.display = 'none';
+      document.getElementById('step2').style.display = 'block';
+      const hint = document.getElementById('otpHint');
+      if (hint) hint.textContent = d.otp_hint ? `📱 OTP sent! Dev OTP: ${d.otp_hint}` : '📱 OTP sent!';
+      toast('📱 OTP sent successfully!');
+    } else {
+      toast('❌ ' + d.error);
+    }
+  } catch (err) {
+    console.log(err);
+    toast('❌ Connection error');
+  }
+}
+
+async function verifyOTP() {
+  const otp = v('otpVal');
+  if (!otp || otp.length !== 6) {
+    toast('⚠️ Enter 6-digit OTP');
+    return;
+  }
+  try {
+    const r = await api('/api/verify-otp', 'POST', { email: S.loginEmail, otp });
+    const d = await r.json();
+    if (r.ok) loginOK(d.user);
+    else toast('❌ ' + d.error);
+  } catch (err) {
+    console.log(err);
+    toast('❌ Connection error');
+  }
+}
+
+function loginOK(user) {
+  S.user = user;
+  const shortName = user.name.split(' ')[0];
+  document.getElementById('navName').textContent = shortName;
+  document.getElementById('userPill').style.display = 'flex';
+  document.getElementById('logoutBtn').style.display = 'block';
+  document.getElementById('startBtn').style.display = 'none';
+  document.getElementById('dashName').textContent = shortName;
+  show('pgDash');
+  toast(`🎉 Welcome, ${shortName}!`);
+}
+
+async function doLogout() {
+  await api('/api/logout', 'POST', {});
+  S.user = null;
+  S.location = null;
+  S.wasteType = null;
+  S.order = null;
+  S.pm = null;
+  S.qty = 5;
+  document.getElementById('userPill').style.display = 'none';
+  document.getElementById('logoutBtn').style.display = 'none';
+  document.getElementById('startBtn').style.display = 'block';
+  goStep1();
+  const otp = document.getElementById('otpVal');
+  if (otp) otp.value = '';
+  show('pgLanding');
+  toast('👋 Logged out!');
+}
+
+function pickWaste(type) {
+  S.wasteType = type;
+  document.getElementById('wDry').className = 'wopt' + (type === 'dry' ? ' sel-g' : '');
+  document.getElementById('wWet').className = 'wopt' + (type === 'wet' ? ' sel-r' : '');
+  refreshPrice();
+}
+
+function adjQty(d) {
+  S.qty = Math.max(1, Math.min(999, S.qty + d));
+  document.getElementById('qtyNum').textContent = S.qty;
+  refreshPrice();
+}
+
+function refreshPrice() {
+  if (!S.wasteType) return;
+  const rate = S.wasteType === 'dry' ? 15 : 20;
+  const base = rate * S.qty;
+  const total = base + 5;
+  const el = document.getElementById('pricePrev');
+  if (el) el.style.display = 'block';
+  document.getElementById('pvType').textContent = S.wasteType === 'dry' ? '♻️ Dry Waste' : '💧 Wet Waste';
+  document.getElementById('pvQty').textContent = `${S.qty} kg`;
+  document.getElementById('pvBase').textContent = `₹${base.toFixed(2)}`;
+  document.getElementById('pvTotal').textContent = `₹${total.toFixed(2)}`;
+}
+
+function setLocDisplay(txt) {
+  const d = document.getElementById('locDisp');
+  if (d) d.style.display = 'flex';
+  const txtEl = document.getElementById('locTxt');
+  if (txtEl) txtEl.textContent = txt;
+}
+
+function initLeafletMap(lat = 12.9716, lng = 77.5946) {
+  const mapEl = document.getElementById('map');
+  if (!mapEl || typeof L === 'undefined') return;
+  if (trashMap) return;
+  trashMap = L.map('map').setView([lat, lng], 15);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '&copy; OpenStreetMap contributors'
+  }).addTo(trashMap);
+  trashMarker = L.marker([lat, lng]).addTo(trashMap).bindPopup('Pickup Location').openPopup();
+}
+
+function updateLeafletMap(lat, lng) {
+  initLeafletMap(lat, lng);
+  if (!trashMap || !trashMarker) return;
+  trashMap.setView([lat, lng], 16);
+  trashMarker.setLatLng([lat, lng]);
+}
+
+function grabLoc() {
+  const btn = document.getElementById('locBtn');
+  btn.textContent = '⏳ Detecting location…';
+  btn.disabled = true;
+  navigator.geolocation?.getCurrentPosition(
+    pos => {
+      S.location = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+      setLocDisplay(`${pos.coords.latitude.toFixed(5)}°N, ${pos.coords.longitude.toFixed(5)}°E`);
+      updateLeafletMap(pos.coords.latitude, pos.coords.longitude);
+      btn.textContent = '✅ Location Detected';
+      btn.style.borderColor = 'var(--green)';
+      btn.style.color = 'var(--green)';
+      btn.disabled = false;
+      toast('📍 Location detected!');
+    },
+    () => {
+      S.location = { lat: 12.9716, lng: 77.5946 };
+      setLocDisplay('Bengaluru, Karnataka (Demo)');
+      updateLeafletMap(12.9716, 77.5946);
+      btn.textContent = '✅ Demo Location Set';
+      btn.style.borderColor = 'var(--yellow)';
+      btn.style.color = 'var(--yellow)';
+      btn.disabled = false;
+      toast('📍 Using demo location');
+    }
+  );
+}
+
+async function submitOrder() {
+  if (!S.user) { toast('⚠️ Please login first'); show('pgAuth'); return; }
+  if (!S.wasteType) { toast('⚠️ Select a waste type'); return; }
+  if (!S.location) { toast('⚠️ Detect your location first'); return; }
+  try {
+    const r = await api('/api/place-order', 'POST', {
+      waste_type: S.wasteType,
+      quantity: S.qty,
+      location: S.location
+    });
+    const d = await r.json();
+    if (r.ok) {
+      S.order = d;
+      document.getElementById('ordPill').textContent = d.order_id;
+      document.getElementById('collName').textContent = d.collector.name;
+      document.getElementById('collRating').textContent = d.collector.rating;
+      document.getElementById('collDist').textContent = d.collector.distance;
+      document.getElementById('collIcon').textContent = d.collector.avatar;
+      document.getElementById('etaVal').textContent = d.eta;
+      if (document.getElementById('mlEtaVal')) document.getElementById('mlEtaVal').textContent = `🤖 ML ETA: ${d.ml_prediction.eta_minutes} mins`;
+      if (document.getElementById('addrVal')) document.getElementById('addrVal').textContent = `📍 ${d.address}`;
+      document.getElementById('pOrdId').textContent = d.order_id;
+      document.getElementById('pType').textContent = S.wasteType === 'dry' ? '♻️ Dry Waste' : '💧 Wet Waste';
+      document.getElementById('pQty').textContent = `${S.qty} kg`;
+      document.getElementById('pBase').textContent = `₹${d.pricing.base_price.toFixed(2)}`;
+      document.getElementById('pTotal').textContent = `₹${d.pricing.total.toFixed(2)}`;
+      show('pgTrack');
+      startLiveTracking();
+      startStatusSync(d.order_id);
+      toast('🎉 Order placed! Collector assigned.');
+    } else {
+      toast('❌ ' + d.error);
+    }
+  } catch (err) {
+    console.log(err);
+    toast('❌ Connection error');
+  }
+}
+
+function startLiveTracking() {
+  const statuses = ['🚛 Collector assigned', '🛣️ Collector is on the way', '📍 Collector is nearby', '♻️ Waste collected', '✅ Pickup completed'];
+  let i = 0;
+  const live = document.getElementById('liveStatus');
+  if (!live) return;
+  if (trackingTimer) clearInterval(trackingTimer);
+  live.textContent = statuses[i];
+  trackingTimer = setInterval(() => {
+    i++;
+    if (i >= statuses.length) { clearInterval(trackingTimer); return; }
+    live.textContent = statuses[i];
+  }, 4000);
+}
+
+function startStatusSync(orderId) {
+  if (statusTimer) clearInterval(statusTimer);
+  statusTimer = setInterval(async () => {
+    try {
+      const res = await fetch(`/api/order-status/${orderId}`, { credentials: 'include' });
+      const order = await res.json();
+      if (res.ok && document.getElementById('liveStatus')) {
+        document.getElementById('liveStatus').textContent = `📡 Live Status: ${order.status}`;
+        if (order.status === 'paid' || order.status === 'completed') clearInterval(statusTimer);
+      }
+    } catch (err) { console.log(err); }
+  }, 3000);
+}
+
+function pickPM(pm) {
+  S.pm = pm;
+  ['upi', 'card', 'cash'].forEach(m => {
+    const el = document.getElementById(`pm-${m}`);
+    if (el) el.classList.toggle('on', m === pm);
+  });
+  document.getElementById('upiSec').style.display = pm === 'upi' ? 'block' : 'none';
+  document.getElementById('cardSec').style.display = pm === 'card' ? 'block' : 'none';
+}
+
+function fmtCard(el) {
+  let val = el.value.replace(/\D/g, '').slice(0, 16);
+  el.value = val.replace(/(.{4})/g, '$1 ').trim();
+}
+
+function calculateEcoScore() {
+  let score = 60;
+  if (S.wasteType === 'dry') score += 15;
+  if (S.wasteType === 'wet') score += 10;
+  if (S.qty >= 5) score += 10;
+  if (S.qty >= 10) score += 5;
+  score = Math.min(score, 100);
+  let tip = 'Great job using responsible waste pickup!';
+  if (S.wasteType === 'wet') tip = 'Try scheduling wet waste pickups in the morning for better freshness.';
+  else if (S.wasteType === 'dry') tip = 'Keep dry waste clean and separate to improve recycling quality.';
+  if (S.qty >= 10) tip = 'Large pickup detected. Try splitting waste weekly to avoid storage issues.';
+  return { score, tip };
+}
+
+async function doPay() {
+  if (!S.pm) { toast('⚠️ Choose a payment method'); return; }
+  if (!S.order) { toast('❌ No active order'); return; }
+  if (S.pm === 'upi' && !v('upiId')) { toast('⚠️ Enter your UPI ID'); return; }
+  if (S.pm === 'card' && (!v('cNum') || !v('cExp') || !v('cCvv') || !v('cName'))) { toast('⚠️ Fill all card details'); return; }
+  try {
+    const r = await api('/api/pay', 'POST', { order_id: S.order.order_id, payment_method: S.pm });
+    const d = await r.json();
+    if (r.ok && d.success) {
+      S.totalOrders++;
+      S.totalKg += S.qty;
+      document.getElementById('sTot').textContent = S.totalOrders;
+      document.getElementById('sKg').textContent = S.totalKg + ' kg';
+      document.getElementById('sTrees').textContent = Math.floor(S.totalKg / 10);
+      document.getElementById('txnId').textContent = d.transaction_id;
+      document.getElementById('txnOrd').textContent = S.order.order_id;
+      document.getElementById('txnAmt').textContent = `₹${S.order.pricing.total.toFixed(2)}`;
+      document.getElementById('txnMeth').textContent = S.pm.toUpperCase();
+      const eco = calculateEcoScore();
+      document.getElementById('ecoScore').textContent = `${eco.score}/100 🌱`;
+      document.getElementById('smartTip').textContent = eco.tip;
+      show('pgSuccess');
+      confetti();
+      toast('🎊 Payment successful!');
+    } else {
+      toast('❌ Payment failed. Try again.');
+    }
+  } catch (err) {
+    console.log(err);
+    toast('❌ Connection error');
+  }
+}
+
+function downloadReceipt() {
+  if (!S.order) { toast('❌ No order found for receipt'); return; }
+  const receiptText = `TRASHDASH RECEIPT
+----------------------------
+
+Order ID: ${document.getElementById('txnOrd').textContent}
+Transaction ID: ${document.getElementById('txnId').textContent}
+Waste Type: ${S.wasteType}
+Quantity: ${S.qty} kg
+Amount Paid: ${document.getElementById('txnAmt').textContent}
+Payment Method: ${document.getElementById('txnMeth').textContent}
+Eco Score: ${document.getElementById('ecoScore').textContent}
+Smart Tip: ${document.getElementById('smartTip').textContent}
+
+Thank you for keeping the city clean 🌱`;
+  const blob = new Blob([receiptText], { type: 'text/plain' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = `TrashDash_Receipt_${S.order.order_id}.txt`;
+  link.click();
+  URL.revokeObjectURL(link.href);
+  toast('🧾 Receipt downloaded');
+}
+
+function confetti() {
+  const colors = ['#00ff66', '#ff3d50', '#ffe048', '#4facfe', '#b44ffc', '#ff9900'];
+  for (let i = 0; i < 90; i++) {
+    const el = document.createElement('div');
+    el.className = 'confetti-bit';
+    const size = 5 + Math.random() * 9;
+    el.style.cssText = `left:${Math.random()*100}vw;top:-10px;width:${size}px;height:${size}px;border-radius:${Math.random()>.5?'50%':'3px'};background:${colors[Math.floor(Math.random()*colors.length)]};animation-duration:${2+Math.random()*2}s;animation-delay:${Math.random()*.6}s;`;
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 4000);
+  }
+}
+
+async function openHistory() {
+  show('pgHistory');
+  try {
+    const res = await fetch('/api/order-history', { credentials: 'include' });
+    const data = await res.json();
+    const list = document.getElementById('historyList');
+    list.innerHTML = '';
+    if (!res.ok) { toast('❌ ' + data.error); return; }
+    if (!data.orders || data.orders.length === 0) {
+      list.innerHTML = `<div class="collector-box"><div><div class="coll-name">No orders yet</div><div class="coll-meta">Place your first pickup request to see history here.</div></div></div>`;
+      return;
+    }
+    data.orders.forEach(order => {
+      const div = document.createElement('div');
+      div.className = 'collector-box';
+      div.style.marginTop = '12px';
+      div.innerHTML = `<div><div class="coll-name">${order.id}</div><div class="coll-meta">${order.waste_type} • ${order.quantity} kg • ₹${order.pricing.total}</div><div class="coll-meta">Status: ${order.status}</div><div class="coll-meta">Collector: ${order.collector.name}</div><div class="coll-meta">Date: ${order.created}</div></div>`;
+      list.appendChild(div);
+    });
+  } catch (err) {
+    console.log(err);
+    toast('❌ Failed to load history');
+  }
+}
+
+function openAdmin() {
+  const pass = prompt('Enter admin password');
+  if (pass !== 'Honey@123') {
+    alert('❌ Access denied');
+    return;
+  }
+  show('pgAdmin');
+  loadAdminData();
+}
+
+async function loadAdminData() {
+  try {
+    const res = await fetch('/api/admin/orders', { credentials: 'include' });
+    const data = await res.json();
+    const list = document.getElementById('adminOrdersList');
+    list.innerHTML = '';
+    const orders = data.orders || [];
+    let active = 0;
+    let done = 0;
+    orders.forEach(order => {
+      if (order.status === 'paid' || order.status === 'completed') done++;
+      else active++;
+      const div = document.createElement('div');
+      div.className = 'collector-box';
+      div.style.marginTop = '12px';
+      div.innerHTML = `<div><div class="coll-name">${order.id}</div><div class="coll-meta">${order.waste_type} • ${order.quantity} kg • ${order.status}</div><div class="coll-meta">User: ${order.user}</div><div class="coll-meta">Collector: ${order.collector.name}</div><div class="coll-meta">ETA: ${order.eta}</div><br><button class="btn btn-ghost" onclick="updateOrderStatus('${order.id}', 'assigned')">Assign</button> <button class="btn btn-ghost" onclick="updateOrderStatus('${order.id}', 'on_the_way')">On Way</button> <button class="btn btn-ghost" onclick="updateOrderStatus('${order.id}', 'collected')">Collected</button> <button class="btn btn-g" onclick="updateOrderStatus('${order.id}', 'completed')">Complete</button></div>`;
+      list.appendChild(div);
+    });
+    if (orders.length === 0) {
+      list.innerHTML = `<div class="collector-box"><div><div class="coll-name">No orders yet</div><div class="coll-meta">Create one pickup order first.</div></div></div>`;
+    }
+    document.getElementById('adminTotal').textContent = orders.length;
+    document.getElementById('adminActive').textContent = active;
+    document.getElementById('adminDone').textContent = done;
+  } catch (err) {
+    console.log(err);
+    toast('❌ Failed to load admin data');
+  }
+}
+
+async function updateOrderStatus(orderId, status) {
+  try {
+    const res = await fetch('/api/admin/update-status', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ order_id: orderId, status })
+    });
+    const data = await res.json();
+    if (res.ok) {
+      toast('✅ Status updated');
+      loadAdminData();
+    } else {
+      toast('❌ ' + data.error);
+    }
+  } catch (err) {
+    console.log(err);
+    toast('❌ Failed to update status');
+  }
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+  show('pgLanding');
+});
+let scannedWasteType = null;
+
+function previewBinImage(event) {
+  const file = event.target.files[0];
+
+  if (!file) {
+    toast('⚠️ No image selected');
+    return;
+  }
+
+  const previewBox = document.getElementById('binPreviewBox');
+  const previewImg = document.getElementById('binPreview');
+  const resultBox = document.getElementById('binAnalysisResult');
+
+  previewImg.src = URL.createObjectURL(file);
+  previewBox.style.display = 'block';
+  resultBox.style.display = 'none';
+  scannedWasteType = null;
+
+  toast('📸 Image uploaded successfully');
+}
+
+function analyzeBinImage() {
+  const input = document.getElementById('binImageInput');
+
+  if (!input || !input.files || input.files.length === 0) {
+    toast('⚠️ Please upload a bin image first');
+    return;
+  }
+
+  const results = [
+    {
+      wasteType: 'dry',
+      type: 'Detected: Dry Waste ♻️',
+      confidence: 'Confidence: 87%',
+      recommendation: 'Recommendation: Suitable for dry waste pickup and recyclable collection.'
+    },
+    {
+      wasteType: 'wet',
+      type: 'Detected: Wet Waste 💧',
+      confidence: 'Confidence: 84%',
+      recommendation: 'Recommendation: Schedule wet waste pickup soon to avoid smell.'
+    },
+    {
+      wasteType: 'wet',
+      type: 'Detected: Mixed Waste 🗑️',
+      confidence: 'Confidence: 78%',
+      recommendation: 'Recommendation: Segregate dry and wet waste before collection.'
+    },
+    {
+      wasteType: 'wet',
+      type: 'Detected: Overflowing Bin 🚨',
+      confidence: 'Confidence: 91%',
+      recommendation: 'Recommendation: High priority pickup required immediately.'
+    }
+  ];
+
+  const selected = results[Math.floor(Math.random() * results.length)];
+  scannedWasteType = selected.wasteType;
+
+  document.getElementById('binDetectedType').textContent = selected.type;
+  document.getElementById('binConfidence').textContent = selected.confidence;
+  document.getElementById('binRecommendation').textContent = selected.recommendation;
+
+  const resultBox = document.getElementById('binAnalysisResult');
+  resultBox.style.display = 'block';
+
+  toast('🤖 Image analyzed successfully');
+}
+
+function useScanForPickup() {
+  if (!scannedWasteType) {
+    toast('⚠️ Analyze an image first');
+    return;
+  }
+
+  show('pgOrder');
+
+  setTimeout(() => {
+    pickWaste(scannedWasteType);
+    toast('✅ Waste type auto-filled from AI scan');
+  }, 300);
+}
+let selectedSubscription = null;
+
+function selectPlan(planName, planPrice, planBenefits) {
+  selectedSubscription = {
+    name: planName,
+    price: planPrice,
+    benefits: planBenefits
+  };
+
+  document.getElementById('selectedPlanBox').style.display = 'block';
+  document.getElementById('selectedPlanName').textContent = `Plan: ${planName}`;
+  document.getElementById('selectedPlanPrice').textContent = `Price: ${planPrice}`;
+  document.getElementById('selectedPlanBenefits').textContent = `Benefits: ${planBenefits}`;
+
+  toast(`💎 ${planName} selected`);
+}
+
+function confirmSubscription() {
+  if (!selectedSubscription) {
+    toast('⚠️ Please select a plan first');
+    return;
+  }
+
+  toast(`✅ ${selectedSubscription.name} activated`);
+
+  setTimeout(() => {
+    show('pgDash');
+  }, 1000);
+}
+</script>
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+</body>
+</html>

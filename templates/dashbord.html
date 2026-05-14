@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Trash Dash Dashboard</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            background: linear-gradient(135deg, #43a047, #a5d6a7);
+            text-align: center;
+            color: #fff;
+        }
+        h1 {
+            font-size: 2.5em;
+            margin-top: 20px;
+            text-shadow: 2px 2px #1b5e20;
+        }
+        .container {
+            background: #ffffff;
+            color: #333;
+            padding: 25px;
+            margin: 40px auto;
+            width: 420px;
+            border-radius: 15px;
+            box-shadow: 0 6px 15px rgba(0,0,0,0.3);
+        }
+        input, select, button {
+            width: 90%;
+            padding: 12px;
+            margin: 12px 0;
+            border-radius: 10px;
+            border: 2px solid #43a047;
+            font-size: 1em;
+        }
+        button {
+            background: #43a047;
+            color: white;
+            font-weight: bold;
+            border: none;
+            cursor: pointer;
+            transition: 0.3s;
+        }
+        button:hover {
+            background: #1b5e20;
+        }
+        .flash {
+            margin: 10px;
+            padding: 12px;
+            border-radius: 10px;
+            font-weight: bold;
+        }
+        .success { background: #c8e6c9; color: #1b5e20; }
+        .error { background: #ffcdd2; color: #b71c1c; }
+        .info { background: #bbdefb; color: #0d47a1; }
+    </style>
+</head>
+<body>
+    <h1>Welcome to Trash Dash 🚛</h1>
+    <div class="container">
+        <h2>Place Trash Order</h2>
+        <form method="POST" action="/order">
+            <select name="waste_type" required>
+                <option value="">Select Waste Type</option>
+                <option value="Wet">Wet</option>
+                <option value="Dry">Dry</option>
+                <option value="Hazardous">Hazardous</option>
+            </select>
+            <input type="text" name="location" placeholder="Enter Location" required>
+            <select name="payment" required>
+                <option value="">Select Payment Method</option>
+                <option value="UPI">UPI</option>
+                <option value="Cash">Cash</option>
+            </select>
+            <button type="submit">Place Order</button>
+        </form>
+    </div>
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="flash {{ category }}">{{ message }}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+</body>
+</html>
